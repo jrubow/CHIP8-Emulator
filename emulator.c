@@ -4,6 +4,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
+#include <instructions.h>
 
 // This program was built with reference to Cowgods Chip-8 technical reference sheet. Located here:
 // https://github.com/trapexit/chip-8_documentation/blob/master/Misc/Cowgod%27s%20CHIP-8%20Technical%20Reference.pdf
@@ -83,7 +84,50 @@ int executeInstruction();
 
 // Takes in read instruction > verifies the instruction is valid > executes the instruction 
 int handleInstruction(char *instruction) {
-  
+  int instructionCode = (*((int *) instruction)) >> 4;
+
+  switch (instructionCode) {
+    case SYSTEM:
+      break;
+    case JMP:
+      break;
+    case CALL:
+      break;
+    case SE:
+      break;
+    case SNE:
+      break;
+    case SE:
+      break;
+    case LOAD:
+      break;
+    case ADD:
+      break;
+    case LOADR:
+      break;
+    case LOGICAL:
+      break;
+    case SKIPR:
+      break;
+    case LOADI:
+      break;
+    case JMPB:
+      break;
+    case RND:
+      break;
+    case DRAW:
+      break;
+    case SKIP:
+      break;
+    case SPECIAL_LOAD:
+      break;
+    default:
+      printf("Unrecognized Instruction in File: %d\n", stderror(errno));
+      return 1;
+  }
+
+
+  return 0;  
 }
 
 
