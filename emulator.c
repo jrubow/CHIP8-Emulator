@@ -11,14 +11,12 @@
 
 #define MAX_RAM 4096
 #define MAX_GENERAL_REGISTERS 16
-#define REGISTER_I 16
-#define MAX_SPECIAL_REGISTERS 2
-#define MAX_PSEUDO_REGISTERS 3
 #define PC_OFFSET 0
 #define SP_OFFSET 2
 #define MAX_STACK 32
 #define MAX_BUFFER 256
 #define INSTRUCTION_LENGTH 2
+#define F 15
 
 // ---------------------------------------------------------------------------------------------------------------------
 // |    MEMORY                                                                                                         |
@@ -39,12 +37,11 @@ unsigned char memory[MAX_RAM];
 // register is a 2 byte (16 bit) register and stores the current execution address. 
 
 unsigned char genRegs[MAX_GENERAL_REGISTERS];
-unsigned char I[REGISTER_I];
-unsigned char specialRegs[MAX_SPECIAL_REGISTERS];
-unsigned char pseudoRegs[MAX_PSEUDO_REGISTERS];
-// pseudo registers offset of:
-//     - 0x0 : Program counter
-//     - 0x2 : Stack Pointer
+int I; // 2 byte (16 bit) register
+int delayTimer; // 1 byte (8 bit) register
+int soundTimer; // 1 byte (8 bit) register
+int programCounter; // 2 byte (16 bit) register
+int stackPointer = 0; // 1 byte (8 bit) register
 
 // ---------------------------------------------------------------------------------------------------------------------
 // |   STACK                                                                                                           |
@@ -79,50 +76,212 @@ bool soundActive = false;
 // ----------------------------------------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------------------------------------
 
-int validateInstruction();
+int getAddr(unsigned char *instruction) {
+  return (int) ((*instruction) & 0x0FFF);
+}
+
+int getx(unsigned char *instruction) {
+  return (int) ((*instruction) & 0x0F00 >> 8);
+}
+
+int gety(unsigned char *instruction) {
+  return (int) ((*instruction) & 0x00F0 >> 4);
+}
+
+int getkk(unsigned char *instruction) {
+  return (int) ((*instruction) & 0x0FF);
+}
+
+int validateInstruction(unsigned char *instruction) {
+  return 0;
+}
+
 int executeInstruction();
 
 // Takes in read instruction > verifies the instruction is valid > executes the instruction 
-int handleInstruction(char *instruction) {
-  int instructionCode = (*((int *) instruction)) >> 4;
+int handleInstruction(unsigned char *instruction) {
+  if (validateInstruction(instruction)) {
+    printf("%s is an invalid instruction: %d\n", instruction, stderror(errno));
+    return 1;
+  }
+  
+  // 0x12340000 >> 28
+  int instructionCode = (int) ((*instruction) >> 28);
 
   switch (instructionCode) {
     case SYSTEM:
       break;
     case JMP:
+      programCounter = getAddr(instruction);
       break;
     case CALL:
+      stackPointer++;
+      stack[stackPointer] = programCounter;
+      programCounter = getAddr(instruction);
       break;
     case SE:
+      if (genRegs[getx(instruction)] == getkk(instruction)) {
+        programCounter += 2;
+      }
       break;
     case SNE:
+      if (genRegs[getx(instruction)] != getkk(instruction)) {
+        programCounter += 2;
+      }
       break;
-    case SE:
+    case SER:
+      if (genRegs[getx(instruction)] == genRegs[gety(instruction)]) {
+        programCounter += 2;
+      }
       break;
     case LOAD:
+      genRegs[getx(instruction)] = getkk(instruction);
       break;
     case ADD:
-      break;
-    case LOADR:
+      genRegs[getx(instruction)] += getkk(instruction);
       break;
     case LOGICAL:
+      int logicalID = instruction & 0xF;
+      switch (logicalID) {
+        case 0:
+          // LD Vx, Vy
+          genRegs[getx(instruction)] = genRegs[gety(instruction)];
+          break;
+        case 1:
+          // OR Vx, Vy
+          genRegs[getx(instruction)] |= genRegs[gety(instruction)];
+          break;
+        case 2:
+          // AND Vx, Vy 
+          genRegs[getx(instruction)] &= genRegs[gety(instruction)];
+          break;
+        case 3:
+          // XOR Vx, Vy
+          genRegs[getx(instruction)] ^= genRegs[gety(instruction)];
+          break;
+        case 4:
+          // ADD Vx, Vy
+          genRegs[getx(instruction)] += genRegs[gety(instruction)];
+          break;
+        case 5:
+          // SUB Vx, Vy
+          genRegs[getx(instruction)] -= genRegs[gety(instruction)];
+          break;
+        case 6:
+          // SHR Vx {, Vy}
+          if (genRegs[getx(instruction)] & 0x1) {
+            genRegs[F] = 1;
+          } else {
+            genRegs[F] = 0;
+          }
+
+          genRegs[getx(instruction)] /= 2;
+          break;
+        case 7:
+          // SUBN Vx, Vy
+          if (genRegs[gety(instruction)] > genRegs[getx(instruction)]) {
+            genRegs[F] = 1; // NOT borrow
+          } else {
+            genRegs[F] = 0;
+          }
+
+          genRegs[getx(instruction)] = genRegs[gety(instruction)] - genRegs[getx(instruction)];
+          break;
+        case 8:
+          // SHL Vx {, Vy}
+          if (genRegs[getx(instruction)] & 0b10000000) {
+            genRegs[F] = 1;
+          } else {
+            genRegs[F] = 0;
+          }
+          break;
+        default:
+          printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
+          return 1;         
+      }
       break;
     case SKIPR:
+      if (genRegs[getx(instruction)] != genRegs[gety(instruction)]) {
+        programCounter += 2;
+      }
       break;
     case LOADI:
+      I = getAddr(instruction);
       break;
     case JMPB:
+      programCounter = genRegs[0] + getAddr(instruction);
       break;
     case RND:
+      genRegs[getx(instruction)] &= rand % 256;
       break;
     case DRAW:
+      // TODO
       break;
     case SKIP:
+      int skpID = instruction & 0xFF;
+      switch (skpID) {
+        case 0x9E:
+          // SKIP Vx
+          break;
+        case 0xA1:
+          // SKNP Vx
+          break;
+        default:
+          printf("Unrecognized Intruction %s in File: %d\n", instruction, stderror(errno));
+          return 1;
+      }
       break;
     case SPECIAL_LOAD:
+      int spldID = instruction & 0xFF;
+      switch (spldID) {
+        case 0x07:
+          // LOAD Vx, DT
+          genRegs[getx(instruction)] = delayTimer;
+          break;
+        case 0x0A:
+          // LOAD Vx, K
+          // TOD....O
+          break;
+        case 0x15:
+          // LOAD DT, Vx
+          delayTimer = genRegs[getx(instruction)];
+          break;
+        case 0x18:
+          // LOAD ST, Vx
+          soundTimer = genRegs[getx(instruction)];
+          break;
+        case 0x1E:
+          // ADD I, Vx
+          I += genRegs[getx(instruction)];
+          break;
+        case 0x29:
+          // TOD...O
+          break;
+        case 0x33:
+          // LOAD B, Vx
+          memory[I] = genRegs[getx(instruction)] / 100;
+          memory[I + 1] = (genRegs[getx(instruction)] / 10) % 10;
+          memory[I + 2] = genRegs[getx(instruction)] % 10;
+          break;
+        case 0x55:
+          // LOAD [I], Vx
+          for (int i = 0; i <= getx(instruction); i++) {
+            memory[I + i] = genRegs[i];
+          }
+          break;
+        case 0x65:
+          // LOAD Vx, [I]
+          for (int i = 0; i <= getx(instruction); i++) {
+            genRegs[i] = memory[I + i];
+          }
+          break;
+        default:
+          printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
+          return 1;
+      }
       break;
     default:
-      printf("Unrecognized Instruction in File: %d\n", stderror(errno));
+      printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
       return 1;
   }
 

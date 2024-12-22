@@ -29,7 +29,7 @@
 #define SNE 0x4
 
 // 5xy0 | SE Vx, Vy | skips to the next instruction if Vx == Vy | [0x5, 0x6)
-#define SRE 0x5
+#define SER 0x5
 
 // 6xkk | LOAD Vx, byte | loads kk into Vx | [0x6, 0x7)
 #define LOAD 0x6
