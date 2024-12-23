@@ -8,7 +8,7 @@
 // Vx/Vy       - refers to one of the general purpose registers.
 
 // 0nnn | SYS addr/nnn | jumps to a machine code at nnn | [0x0F00, 0x1000]
-#define SYS 0x0F00
+#define SYSTEM 0x0F00
 
 // 00E0 | CLS | clears the display
 #define CLS 0x00E0

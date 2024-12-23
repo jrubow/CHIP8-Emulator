@@ -1,10 +1,13 @@
-#include <stdlb.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <instructions.h>
+#include "instructions.h"
+#define SDL_MAIN_HANDLED
+#include "SDL2/include/SDL2/SDL.h"
+
 
 // This program was built with reference to Cowgods Chip-8 technical reference sheet. Located here:
 // https://github.com/trapexit/chip-8_documentation/blob/master/Misc/Cowgod%27s%20CHIP-8%20Technical%20Reference.pdf
@@ -101,12 +104,15 @@ int executeInstruction();
 // Takes in read instruction > verifies the instruction is valid > executes the instruction 
 int handleInstruction(unsigned char *instruction) {
   if (validateInstruction(instruction)) {
-    printf("%s is an invalid instruction: %d\n", instruction, stderror(errno));
+    printf("%s is an invalid instruction: %d\n", instruction, strerror(errno));
     return 1;
   }
   
   // 0x12340000 >> 28
   int instructionCode = (int) ((*instruction) >> 28);
+  int logicalID;
+  int skpID;
+  int spldID;
 
   switch (instructionCode) {
     case SYSTEM:
@@ -141,7 +147,7 @@ int handleInstruction(unsigned char *instruction) {
       genRegs[getx(instruction)] += getkk(instruction);
       break;
     case LOGICAL:
-      int logicalID = instruction & 0xF;
+      logicalID = (*instruction) & 0xF;
       switch (logicalID) {
         case 0:
           // LD Vx, Vy
@@ -175,7 +181,7 @@ int handleInstruction(unsigned char *instruction) {
             genRegs[F] = 0;
           }
 
-          genRegs[getx(instruction)] /= 2;
+          genRegs[getx(instruction)] = genRegs[getx(instruction)] >> 1;
           break;
         case 7:
           // SUBN Vx, Vy
@@ -194,9 +200,11 @@ int handleInstruction(unsigned char *instruction) {
           } else {
             genRegs[F] = 0;
           }
+
+          genRegs[getx(instruction)] = genRegs[getx(instruction)] << 1;
           break;
         default:
-          printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
+          printf("Unrecognized Instruction %s in File: %s\n", instruction, strerror(errno));
           return 1;         
       }
       break;
@@ -212,13 +220,13 @@ int handleInstruction(unsigned char *instruction) {
       programCounter = genRegs[0] + getAddr(instruction);
       break;
     case RND:
-      genRegs[getx(instruction)] &= rand % 256;
+      genRegs[getx(instruction)] &= (rand() % 256);
       break;
     case DRAW:
       // TODO
       break;
     case SKIP:
-      int skpID = instruction & 0xFF;
+      skpID = (*instruction) & 0xFF;
       switch (skpID) {
         case 0x9E:
           // SKIP Vx
@@ -227,12 +235,12 @@ int handleInstruction(unsigned char *instruction) {
           // SKNP Vx
           break;
         default:
-          printf("Unrecognized Intruction %s in File: %d\n", instruction, stderror(errno));
+          printf("Unrecognized Intruction %s in File: %s\n", instruction, strerror(errno));
           return 1;
       }
       break;
     case SPECIAL_LOAD:
-      int spldID = instruction & 0xFF;
+      spldID = (*instruction) & 0xFF;
       switch (spldID) {
         case 0x07:
           // LOAD Vx, DT
@@ -276,12 +284,12 @@ int handleInstruction(unsigned char *instruction) {
           }
           break;
         default:
-          printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
+          printf("Unrecognized Instruction %s in File: %s\n", instruction, strerror(errno));
           return 1;
       }
       break;
     default:
-      printf("Unrecognized Instruction %s in File: %d\n", instruction, stderror(errno));
+      printf("Unrecognized Instruction %s in File: %s\n", instruction, strerror(errno));
       return 1;
   }
 
@@ -290,10 +298,10 @@ int handleInstruction(unsigned char *instruction) {
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
   // Check that one argument was supplied
   if (argc != 1) {
-    printf("Incorrect number of arguments supplied (%d supplied): %s\n", argc, stderror(errno));
+    printf("Incorrect number of arguments supplied (%d supplied): %s\n", argc, strerror(errno));
     return 1;
   }
 
@@ -302,13 +310,39 @@ int main(int argc, char **argv) {
   // Open file
   FILE *fp = fopen(argv[1], "r");
   if (fp == NULL) {
-    printf("Cannot open given file: %d\n", stderror(errno));
+    printf("Cannot open given file: %s\n", strerror(errno));
     return 1;
   }
+
+  // Start SDL
+  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    printf("Cannot start SDL: %s\n", SDL_GetError());
+    return 1;
+  }
+
+  // Initialize SDL
+  SDL_Window *window = SDL_CreateWindow(
+      "Chip-8 Emulator",
+      SDL_WINDOWPOS_CENTERED,
+      SDL_WINDOWPOS_CENTERED,
+      640, 480,
+      SDL_WINDOW_SHOWN);
+
+  if (window == NULL) {
+    printf("Cannot display SDL window: %s\n", SDL_GetError());
+    SDL_Quit();
+    return 1;
+  }
+
+  SDL_Delay(10000);
+
+  SDL_DestroyWindow(window);
+  SDL_Quit();
   
   // Read in instructions
   while (fscanf(fp, "%2s\n", instruction) == 1) {
-    handleInstruction(instruction);
+    // handleInstruction(instructions[programCounter]);
+    programCounter++;
   }
 
 
