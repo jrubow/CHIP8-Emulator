@@ -20,6 +20,8 @@
 #define MAX_BUFFER 256
 #define INSTRUCTION_LENGTH 2
 #define F 15
+#define SCREEN_HEIGHT 32
+#define SCREEN_WIDTH 64
 
 // ---------------------------------------------------------------------------------------------------------------------
 // |    MEMORY                                                                                                         |
@@ -40,11 +42,11 @@ unsigned char memory[MAX_RAM];
 // register is a 2 byte (16 bit) register and stores the current execution address. 
 
 unsigned char genRegs[MAX_GENERAL_REGISTERS];
-int I; // 2 byte (16 bit) register
-int delayTimer; // 1 byte (8 bit) register
-int soundTimer; // 1 byte (8 bit) register
-int programCounter; // 2 byte (16 bit) register
-int stackPointer = 0; // 1 byte (8 bit) register
+short I; // 2 byte (16 bit) register
+char delayTimer; // 1 byte (8 bit) register
+char soundTimer; // 1 byte (8 bit) register
+short programCounter; // 2 byte (16 bit) register
+char stackPointer = 0; // 1 byte (8 bit) register
 
 // ---------------------------------------------------------------------------------------------------------------------
 // |   STACK                                                                                                           |
@@ -59,7 +61,7 @@ unsigned char stack[MAX_STACK];
 // The display is 64x32 pixels monochrome. Chip-48 supports 128x64 pixels as a mode. Sprites are 8x15 pixels. There is 
 // also a list of built in sprites stored in the intepreter area of memory.
 
-// TODO
+bool display[SCREEN_HEIGHT][SCREEN_WIDTH];
 
 // ---------------------------------------------------------------------------------------------------------------------
 // |   TIMERS AND SOUND                                                                                                |
@@ -84,15 +86,63 @@ int getAddr(unsigned char *instruction) {
 }
 
 int getx(unsigned char *instruction) {
-  return (int) ((*instruction) & 0x0F00 >> 8);
+  return (int) (((*instruction) & 0x0F00) >> 8);
 }
 
 int gety(unsigned char *instruction) {
-  return (int) ((*instruction) & 0x00F0 >> 4);
+  return (int) (((*instruction) & 0x00F0) >> 4);
 }
 
 int getkk(unsigned char *instruction) {
   return (int) ((*instruction) & 0x0FF);
+}
+
+int getn(unsigned char *instruction) {
+  return (int) ((*instruction) & 0x000F);
+}
+
+void loadSprite(short spriteAddr, int n, char Vx, char Vy) {
+  genRegs[F] = 0;
+  for (int i = 0; i < n; i++) {
+    unsigned char sb = memory[spriteAddr + i];
+    for (int j = 0; j < SCREEN_WIDTH; j++) {
+      int sp = (sb >> (7 - j)) & 1;
+      int x = (Vx + j) % SCREEN_WIDTH;
+      int y = (Vy + i) % SCREEN_HEIGHT;
+
+      if (sp == 1) {
+        if (display[y][x] == 1) {
+          genRegs[F] = 1;
+        }
+
+        display[y][x] = !display[y][x];
+      }
+    }
+  }
+}
+
+void renderDisplay(SDL_Renderer *renderer) {
+  const int PIXEL_SIZE = 10;
+
+  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+  SDL_RenderClear(renderer);
+
+  SDL_Rect pixelRect;
+  pixelRect.w = PIXEL_SIZE;
+  pixelRect.h = PIXEL_SIZE;
+
+  for (int y = 0; y < SCREEN_HEIGHT; y++) {
+    for (int x = 0; x < SCREEN_WIDTH; x++) {
+      if (display[y][x]) {
+        pixelRect.x = x * PIXEL_SIZE;
+        pixelRect.y = y * PIXEL_SIZE;
+
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+        SDL_RenderFillRect(renderer, &pixelRect);
+      }
+    }
+  }
+  SDL_RenderPresent(renderer);
 }
 
 int validateInstruction(unsigned char *instruction) {
@@ -109,7 +159,7 @@ int handleInstruction(unsigned char *instruction) {
   }
   
   // 0x12340000 >> 28
-  int instructionCode = (int) ((*instruction) >> 28);
+  int instructionCode = (int) ((*instruction) >> 12);
   int logicalID;
   int skpID;
   int spldID;
@@ -223,7 +273,7 @@ int handleInstruction(unsigned char *instruction) {
       genRegs[getx(instruction)] &= (rand() % 256);
       break;
     case DRAW:
-      // TODO
+      loadSprite(I, getn(instruction), getx(instruction), gety(instruction));
       break;
     case SKIP:
       skpID = (*instruction) & 0xFF;
@@ -300,7 +350,7 @@ int handleInstruction(unsigned char *instruction) {
 
 int main(int argc, char *argv[]) {
   // Check that one argument was supplied
-  if (argc != 1) {
+  if (argc != 2) {
     printf("Incorrect number of arguments supplied (%d supplied): %s\n", argc, strerror(errno));
     return 1;
   }
@@ -308,7 +358,8 @@ int main(int argc, char *argv[]) {
   char instruction[INSTRUCTION_LENGTH];
 
   // Open file
-  FILE *fp = fopen(argv[1], "r");
+  //FILE *fp = fopen(argv[1], "rb");
+  FILE *fp = fopen("./tests/test_opcode.ch8", "rb");
   if (fp == NULL) {
     printf("Cannot open given file: %s\n", strerror(errno));
     return 1;
@@ -325,7 +376,7 @@ int main(int argc, char *argv[]) {
       "Chip-8 Emulator",
       SDL_WINDOWPOS_CENTERED,
       SDL_WINDOWPOS_CENTERED,
-      640, 480,
+      640, 320,
       SDL_WINDOW_SHOWN);
 
   if (window == NULL) {
@@ -334,16 +385,47 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  SDL_Delay(10000);
+  SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+  if (!renderer) {
+    printf("Cannot create renderer: %s\n", SDL_GetError());
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 1;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  long size = ftell(fp);
+  rewind(fp);
+  fread(&memory[0x200], size, 1, fp);
+  fclose(fp);
+  bool running = true;
+
+  // Read in instructions
+  while (running) {
+    unsigned short instruction = (memory[programCounter] << 8) | memory[programCounter + 1];
+    handleInstruction((unsigned char *)&instruction);
+    programCounter += 2;
+    
+    renderDisplay(renderer);
+
+    // Approximate 60hz
+    SDL_Delay(16);
+    
+    // Update delay timer
+    if (delayTimer > 0) {
+      delayTimer--;
+    }
+
+    // Update sound timer
+    if (soundTimer > 0) {
+      soundTimer--;
+    }
+    
+  }
 
   SDL_DestroyWindow(window);
+
   SDL_Quit();
-  
-  // Read in instructions
-  while (fscanf(fp, "%2s\n", instruction) == 1) {
-    // handleInstruction(instructions[programCounter]);
-    programCounter++;
-  }
 
 
 

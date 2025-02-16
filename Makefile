@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -I./SDL2/include/
+CFLAGS = -I./SDL2/include/ -g
 LDFLAGS = -L./SDL2/lib -lmingw32 -lSDL2main -lSDL2
 
 TARGET = emulator.exe
